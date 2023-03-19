@@ -1,0 +1,129 @@
+trigger: none
+
+pr: none
+
+pool:
+  vmImage: 'ubuntu-latest'
+
+variables:
+  - template: ./Asset.variables.yml
+
+stages:
+  - stage: api_calls
+    displayName: 'Generate all Reports in CSV'
+    jobs:
+      - job: get_reports
+        displayName: 'Trigger Azure Rest API Calls'
+        steps:
+        - task: UsePythonVersion@0
+          displayName: 'Use Python verison 3.8'
+          inputs:
+            versionSpec: '3.8'
+        - script: pip install -r requirements.txt
+          displayName: 'Install Python Dependencies'
+        - task: AzureCLI@2
+          displayName: 'Get data from Azure Rest API'
+          retryCountOnTaskFailure: 2
+          inputs:
+            azureSubscription: $(SERVICECONNECTION)
+            scriptType: bash
+            workingDirectory: $(System.DefaultWorkingDirectory)
+            scriptLocation: inlineScript
+            inlineScript: |
+              export ARM_CLIENT_ID=$(ARM_CLIENT_ID)
+              export ARM_CLIENT_SECRET=$(ARM_CLIENT_SECRET)
+              export ARM_TENANT_ID=$(ARM_TENANT_ID)
+              export ARM_SUBSCRIPTION_ID=$(ARM_SUBSCRIPTION_ID)
+              export ARM_SUBSCRIPTION_NAME=$(ARM_SUBSCRIPTION_NAME)
+              python3 main.py $(ARM_SUBSCRIPTION_ID) $(ARM_SUBSCRIPTION_NAME)
+        - task: CopyFiles@2
+          displayName: 'Copy csv files'
+          inputs:
+            azureSubscription: $(SERVICECONNECTION)
+            workingDirectory: $(System.DefaultWorkingDirectory)
+            sourceFolder: '$(System.DefaultWorkingDirectory)'
+            contents: '*.csv'
+            targetFolder: '$(Build.ArtifactStagingDirectory)'
+        - task: PublishBuildArtifacts@1
+          displayName: 'Publish CSV Artifacts'
+          inputs:
+            azureSubscription: $(SERVICECONNECTION)
+            workingDirectory: $(System.DefaultWorkingDirectory)
+            pathToPublish: '$(Build.ArtifactStagingDirectory)'
+            artifactName: csvs
+
+  - stage: excel_sheets
+    displayName: 'Build Excel File Reports'
+    dependsOn: api_calls
+    jobs:
+      - job: build_excel
+        displayName: 'Generate Excel Files'
+        steps:
+        - task: DownloadPipelineArtifact@2
+          displayName: 'Download CSV Artifacts'
+          inputs:
+            artifact: csvs
+            path: $(System.DefaultWorkingDirectory)
+        - task: UsePythonVersion@0
+          displayName: 'Use Python verison 3.8'
+          inputs:
+            versionSpec: '3.8'
+        - script: pip install -r requirements.txt
+          displayName: 'Install Python Dependencies'
+        - task: AzureCLI@2
+          displayName: 'Generate Excel File'
+          inputs:
+            azureSubscription: $(SERVICECONNECTION)
+            scriptType: bash
+            workingDirectory: $(System.DefaultWorkingDirectory)
+            scriptLocation: inlineScript
+            inlineScript: |
+              export ARM_CLIENT_ID=$(ARM_CLIENT_ID)
+              export ARM_CLIENT_SECRET=$(ARM_CLIENT_SECRET)
+              export ARM_TENANT_ID=$(ARM_TENANT_ID)
+              python3 generate_report.py
+        - task: AzureCLI@2
+          displayName: 'Upload Excel File'
+          inputs:
+            azureSubscription: $(SERVICECONNECTION)
+            scriptType: bash
+            scriptLocation: inlineScript
+            inlineScript: |
+              export ARM_ACCESS_KEY=$(ARM_ACCESS_KEY)
+              export SA_NAME=$(SA_NAME)
+              export CONTAINER_NAME=$(CONTAINER_NAME)
+              today=`date +%F`
+              ls -ltrh
+              az storage blob upload --account-name $(SA_NAME) --container-name "$(CONTAINER_NAME)/Report-$today" --account-key $(ARM_ACCESS_KEY) --file "$(Build.SourcesDirectory)/reports.xlsx" --name "$(ReportsFileNamePrefix)-$(ARM_SUBSCRIPTION_NAME)-$today.xlsx" --overwrite true
+  
+  - stage: database
+    displayName: 'Insert data into database'
+    dependsOn: api_calls
+    jobs:
+      - job: db_inserts
+        displayName: 'Database Inserts for Analytics'
+        steps:
+        - task: DownloadPipelineArtifact@2
+          displayName: 'Download CSV Artifacts'
+          inputs:
+            artifact: csvs
+            path: $(System.DefaultWorkingDirectory)
+        - task: UsePythonVersion@0
+          displayName: 'Use Python verison 3.8'
+          inputs:
+            versionSpec: '3.8'
+        - script: pip install -r requirements.txt
+          displayName: 'Install Python Modules'
+        - task: AzureCLI@2
+          displayName: 'Insert CSV data to SQL DB'
+          inputs:
+            azureSubscription: $(SERVICECONNECTION)
+            scriptType: bash
+            workingDirectory: $(System.DefaultWorkingDirectory)
+            scriptLocation: inlineScript
+            inlineScript: |
+              export DBSERVER=$(DBSERVER)
+              export DB=$(DB)
+              export USER=$(USER)
+              export PASS=$(PASS)
+              python3 push_to_database.py

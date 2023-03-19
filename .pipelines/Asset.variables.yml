@@ -1,0 +1,26 @@
+variables:
+# Required Variables
+
+  ## Name of the Variable Group containing following Key and Value :
+
+  ### ARM_CLIENT_ID
+  ### ARM_CLIENT_SECRET
+  ### ARM_TENANT_ID
+  ### ARM_SUBSCRIPTION_ID
+  ### ARM_SUBSCRIPTION_NAME
+  ### ARM_ACCESS_KEY
+  ### SA_NAME
+  ### CONTAINER_NAME
+  ### DBSERVER
+  ### DB
+  ### USER
+  ### PASS
+  - group: <VariableGroup>
+
+  ## Name of the Azure DevOps Service Connection.
+  - name: SERVICECONNECTION
+    value: <ServiceConnection>
+  
+  ## Name of the Reports File
+  - name: ReportsFileNamePrefix
+    value: <ReportsFileNamePrefix>
